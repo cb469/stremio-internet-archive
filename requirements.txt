@@ -1,3 +1,4 @@
 Flask>=2.0
 internetarchive>=3.0
 tmdbv3api>=1.8
+Flask-Cors>=3.0
