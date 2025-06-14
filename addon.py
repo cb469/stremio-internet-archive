@@ -1,10 +1,12 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS # <--- ADD THIS LINE
 from tmdbv3api import TMDb, Movie, TV, Discover
 from internetarchive import search_items, get_item
 import os
 import re
 
 app = Flask(__name__)
+CORS(app) # <--- AND ADD THIS LINE
 
 # --- CONFIGURATION ---
 # IMPORTANT: You need a TMDB API key for this to work.
@@ -32,6 +34,8 @@ MANIFEST = {
     "resources": ["catalog", "stream", "meta"],
     "idPrefixes": ["tt"] # This tells Stremio we can handle IMDb IDs
 }
+
+# (The rest of the file is exactly the same as before)
 
 # --- REGEX FOR FILE MATCHING ---
 VIDEO_FILE_REGEX = re.compile(r'.*\.(mkv|mp4|avi|mov)$', re.IGNORECASE)
