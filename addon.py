@@ -9,7 +9,6 @@ app = Flask(__name__)
 CORS(app)
 
 # --- CONFIGURATION ---
-# The TMDB API key is essential for this to work.
 tmdb = TMDb()
 tmdb.api_key = os.environ.get('TMDB_API_KEY')
 tmdb.language = 'en'
@@ -17,29 +16,30 @@ tmdb.language = 'en'
 movie = Movie()
 tv = TV()
 
-# --- ADDON MANIFEST (PROVIDER VERSION) ---
-# This manifest tells Stremio that we DO NOT have a catalog.
-# Instead, we provide 'stream' and 'meta' resources for movies and series.
+# --- ADDON MANIFEST ---
 MANIFEST = {
     "id": "org.yourname.archive-provider",
-    "version": "1.2.0",
+    "version": "1.3.0", # Incremented version
     "name": "Archive.org Provider",
     "description": "Provides movie and series streams from The Internet Archive.",
     "types": ["movie", "series"],
-    "resources": ["stream", "meta"], # We only provide streams and metadata
-    "idPrefixes": ["tt"] # Crucial: tells Stremio we respond to IMDb IDs from Cinemeta
+    "resources": ["stream"], # We only need to declare 'stream'
+    "idPrefixes": ["tt"]
 }
 
 # --- REGEX FOR FILE MATCHING ---
 VIDEO_FILE_REGEX = re.compile(r'.*\.(mkv|mp4|avi|mov)$', re.IGNORECASE)
 
-def search_archive_for_title(title, year):
-    """Searches Internet Archive for a given title and year."""
-    # Search query is more specific to improve chances of a good match
-    search_query = f'collection:movies AND mediatype:movies AND title:("{title}") AND year:{year}'
+# --- NEW, MORE FLEXIBLE SEARCH FUNCTION ---
+def search_archive(title, year):
+    """
+    Searches Internet Archive with a more flexible keyword-based query.
+    """
+    # This query searches for the title and year as keywords, which is more reliable.
+    search_query = f'({title} {year}) AND mediatype:movies'
     try:
+        # We only care about the top result for a given movie/year.
         search_results = search_items(search_query, fields=['identifier'])
-        # Return the identifier of the first result if found
         return next(iter(search_results), None)
     except Exception as e:
         print(f"ERROR: Failed during Internet Archive search for '{title}': {e}")
@@ -50,35 +50,10 @@ def search_archive_for_title(title, year):
 def manifest():
     return jsonify(MANIFEST)
 
-# The '/catalog' endpoint is no longer needed, as we are not providing a catalog.
-
-@app.route('/meta/<type>/<id>.json')
-def meta(type, id):
-    """
-    Stremio asks for metadata. We pass it the TMDB data.
-    This is optional but makes the addon feel more integrated.
-    """
-    if not tmdb.api_key:
-        return jsonify({"meta": {}})
-    
-    try:
-        if type == 'movie':
-            m = movie.details(external_id=id, external_source='imdb_id')
-            meta_obj = {"id": id, "type": "movie", "name": m.title}
-        else: # series
-            s = tv.details(external_id=id, external_source='imdb_id')
-            meta_obj = {"id": id, "type": "series", "name": s.name}
-        return jsonify({"meta": meta_obj})
-    except Exception as e:
-        print(f"ERROR: Failed getting meta for {type} {id}: {e}")
-        return jsonify({"meta": {}})
-
-
 @app.route('/stream/<type>/<id>.json')
 def stream(type, id):
-    """This is the most important function."""
     if not tmdb.api_key:
-        print("ERROR: TMDB_API_KEY is not set. Cannot find streams.")
+        print("FATAL: TMDB_API_KEY is not set. Cannot provide streams.")
         return jsonify({"streams": []})
 
     try:
@@ -99,11 +74,10 @@ def stream(type, id):
             s_e_match = re.compile(f'S{int(season_num):02d}E{int(episode_num):02d}', re.IGNORECASE)
 
         if not title_to_search or not year:
-            print(f"WARNING: Not enough info from TMDB for {id}")
             return jsonify({"streams": []})
 
         print(f"INFO: Searching Archive.org for '{title_to_search}' ({year})")
-        archive_item = search_archive_for_title(title_to_search, year)
+        archive_item = search_archive(title_to_search, year)
         
         if not archive_item:
             print(f"INFO: No item found on Archive.org for '{title_to_search}'")
@@ -116,20 +90,20 @@ def stream(type, id):
         
         for f in item_details.files:
             if VIDEO_FILE_REGEX.match(f['name']):
-                # If it's a series, make sure the filename matches SxxExx
                 if type == 'series' and s_e_match and not s_e_match.search(f['name']):
                     continue
 
                 streams.append({
                     "name": "Archive.org",
-                    "title": f['name'],
+                    "title": f.get('title', f['name']), # Use file title if available
                     "url": f"https://archive.org/download/{item_id}/{f['name']}"
                 })
         
+        print(f"INFO: Found {len(streams)} stream(s) for {item_id}")
         return jsonify({"streams": streams})
     except Exception as e:
         print(f"FATAL ERROR in stream function for {id}: {e}")
-        return jsonify({"streams": []}) # Return empty list on any error
+        return jsonify({"streams": []})
 
 # Vercel entry point
 if __name__ == "__main__":
