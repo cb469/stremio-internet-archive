@@ -7,25 +7,32 @@ import re
 app = Flask(__name__)
 CORS(app)
 
-# --- THE CORRECTED UNIFIED CATALOG MANIFEST ---
+# --- THE SEARCHABLE CATALOG MANIFEST ---
 MANIFEST = {
     "id": "org.yourname.internet-archive.catalog",
-    "version": "10.0.1", # Manifest Fix
+    "version": "10.0.2", # Live Search
     "name": "Internet Archive Catalog",
-    "description": "Browse movies and series directly from The Internet Archive.",
+    "description": "Performs a live search of The Internet Archive and shows the results.",
     "types": ["movie", "series"],
     
-    # --- THIS IS THE FIX ---
-    # The 'catalogs' property is now correctly defined. This tells Stremio
-    # exactly which catalogs we offer, with their own names and IDs.
     "catalogs": [
-        {"type": "movie", "id": "archive-movies", "name": "Archive Movies"},
-        {"type": "series", "id": "archive-series", "name": "Archive Series"}
+        {
+            "type": "movie", 
+            "id": "archive-movies", 
+            "name": "Archive Movies",
+            # --- THIS IS THE KEY ---
+            # This tells Stremio to send search queries to this catalog.
+            "behaviorHints": { "searchable": True }
+        },
+        {
+            "type": "series", 
+            "id": "archive-series", 
+            "name": "Archive Series",
+            "behaviorHints": { "searchable": True }
+        }
     ],
     
-    # 'resources' now correctly lists the features we support.
     "resources": ["catalog", "meta", "stream"],
-    
     "idPrefixes": ["archive-"] 
 }
 
@@ -39,20 +46,26 @@ def landing_page():
 def get_manifest():
     return jsonify(MANIFEST)
 
-# --- CATALOG ENDPOINT ---
-# This function builds the poster grid you see in Stremio.
+# --- DYNAMIC CATALOG ENDPOINT ---
+# This function now handles both browsing AND searching.
 @app.route('/catalog/<type>/<id>.json')
 def get_catalog(type, id):
-    print(f"--- LOG: Request received for catalog: {type}/{id} ---")
+    # 'request.args' gets the query parameters from the URL.
+    # Stremio sends the user's search query in the 'search' parameter.
+    search_query = request.args.get('search', None)
     
-    # This check ensures we only run for our defined catalog IDs.
-    if id not in ["archive-movies", "archive-series"]:
-        return jsonify({"metas": []})
-
-    if type == 'movie':
-        query = 'mediatype:(movies) AND downloads:[10000 TO *]'
-    else: # 'series'
-        query = 'collection:(televisionseries) AND downloads:[5000 TO *]'
+    query = ""
+    if search_query:
+        # If the user is searching, use their query directly.
+        print(f"--- INFO: Received search request for: '{search_query}' ---")
+        query = search_query
+    else:
+        # If the user is just browsing, show a default catalog of popular items.
+        print(f"--- INFO: No search query. Showing default catalog for '{type}'. ---")
+        if type == 'movie':
+            query = 'mediatype:(movies) AND downloads:[10000 TO *]'
+        else: # 'series'
+            query = 'collection:(televisionseries) AND downloads:[5000 TO *]'
 
     search_url = "https://archive.org/advancedsearch.php"
     params = {
@@ -87,48 +100,36 @@ def get_catalog(type, id):
     return jsonify({"metas": metas})
 
 
-# --- METADATA ENDPOINT ---
+# --- METADATA AND STREAM ENDPOINTS (Unchanged) ---
 @app.route('/meta/<type>/<id>.json')
 def get_meta(type, id):
     identifier = id.replace("archive-", "")
-    
     try:
         meta_url = f"https://archive.org/metadata/{identifier}"
         response = requests.get(meta_url)
         response.raise_for_status()
         data = response.json()
-    except Exception as e:
-        print(f"--- ERROR: Failed to get metadata for {identifier}: {e} ---")
+    except Exception:
         return jsonify({"meta": {}})
 
     metadata = data.get('metadata', {})
-    
-    meta_obj = {
-        "id": id,
-        "type": type,
-        "name": metadata.get('title', 'Untitled'),
+    return jsonify({"meta": {
+        "id": id, "type": type, "name": metadata.get('title', 'Untitled'),
         "poster": f"https://archive.org/services/get-item-image.php?identifier={identifier}",
         "background": f"https://archive.org/services/get-item-image.php?identifier={identifier}",
         "description": metadata.get('description', 'No description available.'),
         "year": metadata.get('year')
-    }
-    
-    return jsonify({"meta": meta_obj})
+    }})
 
-
-# --- STREAM ENDPOINT ---
 @app.route('/stream/<type>/<id>.json')
 def get_stream(type, id):
     identifier = id.replace("archive-", "")
-    print(f"--- LOG: Request received for streams for item: {identifier} ---")
-
     try:
         files_url = f"https://archive.org/metadata/{identifier}/files"
         response = requests.get(files_url)
         response.raise_for_status()
         files = response.json().get('result', [])
-    except Exception as e:
-        print(f"--- ERROR: Failed to get files for {identifier}: {e} ---")
+    except Exception:
         return jsonify({"streams": []})
 
     streams = []
@@ -143,7 +144,6 @@ def get_stream(type, id):
                 "url": f"https://archive.org/download/{identifier}/{filename.replace(' ', '%20')}"
             })
             
-    print(f"--- SUCCESS: Found {len(streams)} video files for item. ---")
     return jsonify({"streams": sorted(streams, key=lambda k: k['title'])})
 
 if __name__ == "__main__":
