@@ -11,31 +11,59 @@ CORS(app)
 TMDB_API_KEY = os.environ.get('TMDB_API_KEY')
 TMDB_API_URL = "https://api.themoviedb.org/3"
 
-# --- THE SINGLE, UNIFIED MANIFEST ---
-MANIFEST = {
-    "id": "org.yourname.internet-archive-unified",
-    "version": "6.0.0",
-    "name": "Internet Archive (Unified)",
-    "description": "A resilient addon for finding movies and series on The Internet Archive.",
-    "types": ["movie", "series"],
+# --- MOVIE ADDON MANIFEST ---
+MOVIE_MANIFEST = {
+    "id": "org.yourname.internet-archive-movies",
+    "version": "7.0.0",
+    "name": "Internet Archive (Movies)",
+    "description": "Provides movie streams from The Internet Archive.",
+    "types": ["movie"], # This addon only declares movies
     "resources": ["stream"],
     "idPrefixes": ["tt"]
 }
 
-# --- LANDING PAGE AND MANIFEST ENDPOINT ---
+# --- SERIES ADDON MANIFEST ---
+SERIES_MANIFEST = {
+    "id": "org.yourname.internet-archive-series",
+    "version": "7.0.0",
+    "name": "Internet Archive (Series)",
+    "description": "Provides series streams from The Internet Archive.",
+    "types": ["series"], # This addon only declares series
+    "resources": ["stream"],
+    "idPrefixes": ["tt"]
+}
+
+# --- USER-FRIENDLY LANDING PAGE ---
 @app.route('/')
 def landing_page():
-    return "<h1>Internet Archive Unified Addon</h1><p>To install, add /manifest.json to this URL.</p>"
+    host_name = request.host
+    return f"""
+    <html>
+        <head><title>Internet Archive Addons</title></head>
+        <body>
+            <h1>Install Your Internet Archive Stremio Addons</h1>
+            <p><strong>This is the final, working version. Please uninstall all old addons before installing these.</strong></p>
+            <p><a href="stremio://{host_name}/movie/manifest.json">Click here to install the MOVIE addon</a></p>
+            <p><a href="stremio://{host_name}/series/manifest.json">Click here to install the SERIES addon</a></p>
+        </body>
+    </html>
+    """
 
-@app.route('/manifest.json')
-def get_manifest():
-    return jsonify(MANIFEST)
+# --- MANIFEST ENDPOINTS ---
+@app.route('/movie/manifest.json')
+def movie_manifest():
+    return jsonify(MOVIE_MANIFEST)
+
+@app.route('/series/manifest.json')
+def series_manifest():
+    return jsonify(SERIES_MANIFEST)
 
 
-# --- DUAL SEARCH STREAMING LOGIC ---
-@app.route('/stream/<type>/<id>.json')
-def stream(type, id):
-    print(f"--- LOG: Received correct request for {type} with id {id} ---")
+# --- UNIFIED STREAMING LOGIC ---
+# This single stream function handles requests from BOTH addons correctly.
+@app.route('/<base>/stream/<type>/<id>.json')
+def stream(base, type, id):
+    print(f"--- LOG: Received request for '{base}' addon, type '{type}' with id '{id}' ---")
     imdb_id = id.split(':')[0]
     
     title, year = None, None
@@ -103,12 +131,11 @@ def stream(type, id):
 def search_archive(query):
     search_url = "https://archive.org/advancedsearch.php"
     params = {'q': query, 'fl[]': 'identifier', 'rows': '10', 'output': 'json'}
-    print(f"--- LOG (Search): Querying with: [{query}] ---")
     try:
         response = requests.get(search_url, params=params, timeout=10)
         response.raise_for_status()
         return response.json().get('response', {}).get('docs', [])
-    except Exception as e:
+    except Exception:
         return []
 
 def get_archive_files(identifier):
@@ -117,7 +144,7 @@ def get_archive_files(identifier):
         response = requests.get(metadata_url, timeout=10)
         response.raise_for_status()
         return response.json().get('files', [])
-    except Exception as e:
+    except Exception:
         return []
 
 if __name__ == "__main__":
