@@ -14,7 +14,7 @@ TMDB_API_URL = "https://api.themoviedb.org/3"
 # --- THE SINGLE, UNIFIED MANIFEST ---
 MANIFEST = {
     "id": "org.yourname.internet-archive.final",
-    "version": "9.0.1", # Bug fix release
+    "version": "9.0.3", # Name-Only Search for Series
     "name": "Internet Archive (Final)",
     "description": "A resilient addon for finding movies and series on The Internet Archive.",
     "types": ["movie", "series"],
@@ -36,7 +36,7 @@ def get_manifest():
 @app.route('/stream/<type>/<id>.json')
 def stream(type, id):
     print(f"--- LOG: Received request for {type} with id {id} ---")
-    imdb_id = id.split(':')[0] # This correctly gets the clean ID, e.g., "tt0321777"
+    imdb_id = id.split(':')[0]
     
     title, year = None, None
     if TMDB_API_KEY:
@@ -61,23 +61,25 @@ def stream(type, id):
     found_identifiers = set()
 
     if type == 'movie':
+        # For movies, use the proven Title+Year and IMDb ID search
         print("--- INFO (Movie): Using dual search logic... ---")
         if title and year:
             query = f'({title}) AND year:({year})'
             results = search_archive(query)
             for result in results: found_identifiers.add(result.get('identifier'))
+        # The IMDb ID search runs as a backup for movies
+        print(f"--- INFO (Movie Backup): Performing IMDb ID Search for '{imdb_id}'... ---")
+        results = search_archive(f'imdb:{imdb_id}')
+        for result in results: found_identifiers.add(result.get('identifier'))
+
     else: # type == 'series'
-        print("--- INFO (Series): Using flexible search logic... ---")
+        # --- THIS IS YOUR REQUESTED LOGIC ---
+        # For series, we now ONLY search by title.
+        print("--- INFO (Series): Using NAME-ONLY search logic... ---")
         if title:
             query = f'({title})'
             results = search_archive(query)
             for result in results: found_identifiers.add(result.get('identifier'))
-
-    # --- THIS IS THE FIX ---
-    # It now uses the clean 'imdb_id' variable instead of the full 'id' variable.
-    print(f"--- INFO (Backup): Performing IMDb ID Search for '{imdb_id}'... ---")
-    results = search_archive(f'imdb:{imdb_id}')
-    for result in results: found_identifiers.add(result.get('identifier'))
     
     if not found_identifiers:
         print("--- FAIL: No items found on Archive.org from any search. ---")
@@ -107,7 +109,7 @@ def stream(type, id):
                 valid_streams.append({ "name": "Internet Archive", "title": filename, "url": f"https://archive.org/download/{identifier}/{filename.replace(' ', '%20')}" })
     
     print(f"--- SUCCESS: Found {len(valid_streams)} valid stream(s). Returning to Stremio. ---")
-    return jsonify({"streams": sorted(valid_streams, key=lambda k: k['title'])})
+    return jsonify({"streams": sorted(_valid_streams, key=lambda k: k['title'])})
 
 def search_archive(query):
     search_url = "https://archive.org/advancedsearch.php"
