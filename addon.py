@@ -11,15 +11,13 @@ CORS(app)
 TMDB_API_KEY = os.environ.get('TMDB_API_KEY')
 TMDB_API_URL = "https://api.themoviedb.org/3"
 
-# --- SERIES-ONLY MANIFEST ---
-# This is the key. By only declaring "series", we give Stremio a simple
-# manifest that it cannot misinterpret, based on our successful debug test.
+# --- THE SINGLE, UNIFIED MANIFEST ---
 MANIFEST = {
-    "id": "org.yourname.internet-archive-series-final",
-    "version": "8.0.0",
-    "name": "Internet Archive (Series Only)",
-    "description": "A dedicated addon to find TV Series on The Internet Archive.",
-    "types": ["series"], # This is the most important line
+    "id": "org.yourname.internet-archive.final",
+    "version": "9.0.0",
+    "name": "Internet Archive (Final)",
+    "description": "A resilient addon for finding movies and series on The Internet Archive.",
+    "types": ["movie", "series"],
     "resources": ["stream"],
     "idPrefixes": ["tt"]
 }
@@ -28,26 +26,16 @@ MANIFEST = {
 @app.route('/')
 def landing_page():
     host_name = request.host
-    return f"""
-    <html>
-        <head><title>Internet Archive Series Addon</title></head>
-        <body>
-            <h1>Internet Archive (Series Only) Addon</h1>
-            <p><strong>This addon ONLY searches for TV shows.</strong></p>
-            <p><a href="stremio://{host_name}/manifest.json">Click here to install the addon</a></p>
-        </body>
-    </html>
-    """
+    return f"""<html><head><title>Internet Archive Addon</title></head><body><h1>Internet Archive Addon (Final)</h1><p>To install, use this link: <a href="stremio://{host_name}/manifest.json">Install Addon</a></p></body></html>"""
 
 @app.route('/manifest.json')
 def get_manifest():
     return jsonify(MANIFEST)
 
-
-# --- DEDICATED SERIES STREAMING LOGIC ---
-@app.route('/stream/series/<id>.json') # Route is now hardcoded for series
-def stream_series(id):
-    print(f"--- LOG: Received request for SERIES with id {id} ---")
+# --- FINAL, FORKED STREAMING LOGIC ---
+@app.route('/stream/<type>/<id>.json')
+def stream(type, id):
+    print(f"--- LOG: Received request for {type} with id {id} ---")
     imdb_id = id.split(':')[0]
     
     title, year = None, None
@@ -57,11 +45,11 @@ def stream_series(id):
             response = requests.get(tmdb_url, timeout=5)
             if response.status_code == 200:
                 data = response.json()
-                results = data.get('tv_results', [])
+                results = data.get('movie_results' if type == 'movie' else 'tv_results', [])
                 if results:
                     item = results[0]
-                    title = item.get('name')
-                    year = item.get('first_air_date', '')[:4]
+                    title = item.get('title' if type == 'movie' else 'name')
+                    year = (item.get('release_date') or item.get('first_air_date', ''))[:4]
                     print(f"--- INFO: TMDB lookup successful: Found '{title} ({year})'. ---")
             else:
                  print(f"--- WARNING: TMDB API returned status {response.status_code}. ---")
@@ -72,22 +60,34 @@ def stream_series(id):
 
     found_identifiers = set()
 
-    if title:
-        print(f"--- INFO: Performing Title Search for '{title}'... ---")
-        query = f'({title}) AND year:({year})' if year else f'({title})'
-        results = search_archive(query)
-        for result in results: found_identifiers.add(result.get('identifier'))
+    # --- THIS IS THE FORKED LOGIC YOU REQUESTED ---
+    if type == 'movie':
+        # For movies, use the proven Title+Year and IMDb ID search
+        print("--- INFO (Movie): Using dual search logic... ---")
+        if title and year:
+            query = f'({title}) AND year:({year})'
+            results = search_archive(query)
+            for result in results: found_identifiers.add(result.get('identifier'))
+    else: # type == 'series'
+        # For series, use the more flexible Title-Only and IMDb ID search
+        print("--- INFO (Series): Using flexible search logic... ---")
+        if title:
+            query = f'({title})' # Search by name only, ignore year
+            results = search_archive(query)
+            for result in results: found_identifiers.add(result.get('identifier'))
 
-    print(f"--- INFO: Performing IMDb ID Search for '{imdb_id}'... ---")
+    # The IMDb ID search runs for BOTH types as a powerful backup
+    print(f"--- INFO (Backup): Performing IMDb ID Search for '{imdb_id}'... ---")
     results = search_archive(f'imdb:{imdb_id}')
     for result in results: found_identifiers.add(result.get('identifier'))
     
     if not found_identifiers:
-        print("--- FAIL: No items found on Archive.org from either search. ---")
+        print("--- FAIL: No items found on Archive.org from any search. ---")
         return jsonify({"streams": []})
 
     print(f"--- INFO: Found {len(found_identifiers)} unique potential item(s). Fetching files... ---")
 
+    # --- The rest of the code is the same, as it works correctly ---
     valid_streams = []
     VIDEO_FILE_REGEX = re.compile(r'.*\.(mkv|mp4|avi|mov)$', re.IGNORECASE)
     
@@ -97,14 +97,15 @@ def stream_series(id):
         for f in files:
             filename = f.get('name')
             if filename and VIDEO_FILE_REGEX.match(filename):
-                season_num, episode_num = int(id.split(':')[1]), int(id.split(':')[2])
-                patterns = [
-                    re.compile(f'[Ss]{season_num:02d}[._- ]?[EeXx]{episode_num:02d}'),
-                    re.compile(f'{season_num:d}[xX]{episode_num:02d}'),
-                    re.compile(f'[Ss]eason[._- ]{season_num}[._- ]?[Ee]pisode[._- ]{episode_num}', re.I)
-                ]
-                if not any(p.search(filename) for p in patterns):
-                    continue
+                if type == 'series':
+                    season_num, episode_num = int(id.split(':')[1]), int(id.split(':')[2])
+                    patterns = [
+                        re.compile(f'[Ss]{season_num:02d}[._- ]?[EeXx]{episode_num:02d}'),
+                        re.compile(f'{season_num:d}[xX]{episode_num:02d}'),
+                        re.compile(f'[Ss]eason[._- ]{season_num}[._- ]?[Ee]pisode[._- ]{episode_num}', re.I)
+                    ]
+                    if not any(p.search(filename) for p in patterns):
+                        continue
                 
                 valid_streams.append({ "name": "Internet Archive", "title": filename, "url": f"https://archive.org/download/{identifier}/{filename.replace(' ', '%20')}" })
     
