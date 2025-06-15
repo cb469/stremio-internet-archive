@@ -7,27 +7,23 @@ import re
 app = Flask(__name__)
 CORS(app)
 
-# --- THE HYBRID CATALOG MANIFEST ---
+# --- THE TRUE SEARCH PROVIDER MANIFEST ---
+# This manifest advertises our addon as a search handler.
 MANIFEST = {
-    "id": "org.yourname.internet-archive.hybrid-catalog",
-    "version": "11.0.0",
-    "name": "Internet Archive Catalog",
-    "description": "Browse popular items or search directly inside the catalog.",
-    "types": ["movie", "series"],
+    "id": "org.yourname.internet-archive.search-provider",
+    "version": "12.0.0",
+    "name": "Internet Archive Search",
+    "description": "Performs a live search of The Internet Archive.",
+    "types": ["movie", "series", "channel"], # Added channel type for broader results
     
-    # This structure now correctly defines a catalog with an OPTIONAL search field.
+    # This is the key: it defines a catalog that REQUIRES a search term.
+    # This makes our addon appear as a result provider in Stremio's main search.
     "catalogs": [
         {
-            "type": "movie", 
-            "id": "archive-movies", 
-            "name": "Archive Movies",
-            "extra": [{ "name": "search", "isRequired": False }]
-        },
-        {
-            "type": "series", 
-            "id": "archive-series", 
-            "name": "Archive Series",
-            "extra": [{ "name": "search", "isRequired": False }]
+            "id": "archive-search",
+            "type": "movie", # Stremio needs at least one type here
+            "name": "Internet Archive",
+            "extra": [{ "name": "search", "isRequired": True }]
         }
     ],
     
@@ -39,36 +35,33 @@ MANIFEST = {
 @app.route('/')
 def landing_page():
     host_name = request.host
-    return f"""<html><head><title>Internet Archive Catalog</title></head><body><h1>Internet Archive Catalog Addon</h1><p>To install, use this link: <a href="stremio://{host_name}/manifest.json">Install Addon</a></p></body></html>"""
+    return f"""<html><head><title>Internet Archive Search</title></head><body><h1>Internet Archive Search Addon</h1><p>To install, use this link: <a href="stremio://{host_name}/manifest.json">Install Addon</a></p></body></html>"""
 
 @app.route('/manifest.json')
 def get_manifest():
     return jsonify(MANIFEST)
 
-# --- DYNAMIC CATALOG ENDPOINT ---
+# --- DYNAMIC SEARCH-ONLY CATALOG ENDPOINT ---
+# This function's only job is to respond to search requests from Stremio.
 @app.route('/catalog/<type>/<id>.json')
 def get_catalog(type, id):
     search_query = request.args.get('search', None)
     
-    query = ""
-    if search_query:
-        # If the user has typed in our catalog's search box, use their query.
-        print(f"--- INFO: Received in-catalog search for: '{search_query}' ---")
-        query = f'({search_query}) AND mediatype:({type})'
-    else:
-        # If the user is just browsing, show a default catalog of popular items.
-        print(f"--- INFO: No search query. Showing default popular items for '{type}'. ---")
-        if type == 'movie':
-            query = 'mediatype:(movies) AND downloads:[10000 TO *]'
-        else: # 'series'
-            query = 'collection:(televisionseries) AND downloads:[5000 TO *]'
+    if not search_query:
+        # If Stremio somehow accesses this without a search, we return nothing.
+        return jsonify({"metas": []})
+
+    print(f"--- INFO: Received global search for '{search_query}' ---")
+    
+    # We build the query exactly as you requested.
+    query = f'title:({search_query})'
 
     search_url = "https://archive.org/advancedsearch.php"
     params = {
         'q': query,
-        'fl[]': 'identifier,title,year',
+        'fl[]': 'identifier,title,year,mediatype', # Get mediatype to know if it's a movie/series
         'sort[]': 'downloads desc',
-        'rows': '100',
+        'rows': '50',
         'output': 'json'
     }
     
@@ -77,22 +70,29 @@ def get_catalog(type, id):
         response.raise_for_status()
         docs = response.json().get('response', {}).get('docs', [])
     except Exception as e:
-        print(f"--- ERROR: Failed to search Archive.org for catalog: {e} ---")
+        print(f"--- ERROR: Failed to search Archive.org: {e} ---")
         return jsonify({"metas": []})
 
     metas = []
     for doc in docs:
         identifier = doc.get('identifier')
         if not identifier: continue
+
+        # Determine the type based on the mediatype from the archive
+        media_type = doc.get('mediatype', 'movie')
+        if media_type in ['televisionseries', 'television']:
+            stremio_type = 'series'
+        else:
+            stremio_type = 'movie'
         
         metas.append({
             "id": f"archive-{identifier}",
-            "type": type,
+            "type": stremio_type,
             "name": doc.get('title', 'Untitled'),
             "poster": f"https://archive.org/services/get-item-image.php?identifier={identifier}"
         })
 
-    print(f"--- SUCCESS: Returning {len(metas)} items for the catalog. ---")
+    print(f"--- SUCCESS: Returning {len(metas)} search results. ---")
     return jsonify({"metas": metas})
 
 
