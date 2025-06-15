@@ -15,10 +15,10 @@ NEGATIVE_KEYWORDS = ['trailer', 'teaser', 'preview', 'sample', 'featurette', 'sc
 # --- MOVIE ADDON MANIFEST ---
 MOVIE_MANIFEST = {
     "id": "org.yourname.internet-archive-movies",
-    "version": "4.0.0",
+    "version": "4.0.1",
     "name": "Internet Archive (Movies)",
     "description": "Provides movie streams from The Internet Archive.",
-    "types": ["movie"], # This addon only declares movies
+    "types": ["movie"],
     "resources": ["stream"],
     "idPrefixes": ["tt"]
 }
@@ -26,10 +26,10 @@ MOVIE_MANIFEST = {
 # --- SERIES ADDON MANIFEST ---
 SERIES_MANIFEST = {
     "id": "org.yourname.internet-archive-series",
-    "version": "4.0.0",
+    "version": "4.0.1",
     "name": "Internet Archive (Series)",
     "description": "Provides series streams from The Internet Archive.",
-    "types": ["series"], # This addon only declares series
+    "types": ["series"],
     "resources": ["stream"],
     "idPrefixes": ["tt"]
 }
@@ -37,15 +37,16 @@ SERIES_MANIFEST = {
 # --- USER-FRIENDLY LANDING PAGE ---
 @app.route('/')
 def landing_page():
-    # Provides easy installation links for the user.
-    host = request.host_url
+    # --- THIS IS THE FIX ---
+    # Changed request.host_url to request.host to prevent the "https://https://" error.
+    host_name = request.host
     return f"""
     <html>
         <head><title>Internet Archive Addons</title></head>
         <body>
             <h1>Install Your Internet Archive Stremio Addons</h1>
-            <p><a href="stremio://{host}movie/manifest.json">Click here to install the MOVIE addon</a></p>
-            <p><a href="stremio://{host}series/manifest.json">Click here to install the SERIES addon</a></p>
+            <p><a href="stremio://{host_name}/movie/manifest.json">Click here to install the MOVIE addon</a></p>
+            <p><a href="stremio://{host_name}/series/manifest.json">Click here to install the SERIES addon</a></p>
         </body>
     </html>
     """
@@ -61,10 +62,8 @@ def series_manifest():
 
 
 # --- UNIFIED STREAMING LOGIC ---
-# This single stream function handles requests from BOTH addons.
 @app.route('/stream/<type>/<id>.json')
 def stream(type, id):
-    # (The scraping code from before is placed here, unchanged)
     if not TMDB_API_KEY:
         return jsonify({"streams": []})
 
