@@ -15,7 +15,7 @@ NEGATIVE_KEYWORDS = ['trailer', 'teaser', 'preview', 'sample', 'featurette', 'sc
 # --- MOVIE ADDON MANIFEST ---
 MOVIE_MANIFEST = {
     "id": "org.yourname.internet-archive-movies",
-    "version": "4.0.1",
+    "version": "4.0.2",
     "name": "Internet Archive (Movies)",
     "description": "Provides movie streams from The Internet Archive.",
     "types": ["movie"],
@@ -26,7 +26,7 @@ MOVIE_MANIFEST = {
 # --- SERIES ADDON MANIFEST ---
 SERIES_MANIFEST = {
     "id": "org.yourname.internet-archive-series",
-    "version": "4.0.1",
+    "version": "4.0.2",
     "name": "Internet Archive (Series)",
     "description": "Provides series streams from The Internet Archive.",
     "types": ["series"],
@@ -37,8 +37,6 @@ SERIES_MANIFEST = {
 # --- USER-FRIENDLY LANDING PAGE ---
 @app.route('/')
 def landing_page():
-    # --- THIS IS THE FIX ---
-    # Changed request.host_url to request.host to prevent the "https://https://" error.
     host_name = request.host
     return f"""
     <html>
@@ -62,8 +60,10 @@ def series_manifest():
 
 
 # --- UNIFIED STREAMING LOGIC ---
-@app.route('/stream/<type>/<id>.json')
-def stream(type, id):
+# --- THIS IS THE FIX ---
+# The route now includes the <base> variable to match Stremio's requests.
+@app.route('/<base>/stream/<type>/<id>.json')
+def stream(base, type, id): # The function now accepts 'base', but doesn't need to use it.
     if not TMDB_API_KEY:
         return jsonify({"streams": []})
 
