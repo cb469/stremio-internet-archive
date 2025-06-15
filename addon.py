@@ -7,32 +7,32 @@ import re
 app = Flask(__name__)
 CORS(app)
 
-# --- CONFIGURATION ---
+# Configuration
 TMDB_API_KEY = os.environ.get('TMDB_API_KEY')
 TMDB_API_URL = "https://api.themoviedb.org/3"
 
-# --- THE SINGLE, UNIFIED MANIFEST ---
+# Manifest
 MANIFEST = {
-    "id": "org.yourname.internet-archive.final",
+    "id": "org.internet-archive",
     "version": "9.0.0",
-    "name": "Internet Archive (Final)",
-    "description": "A resilient addon for finding movies and series on The Internet Archive.",
+    "name": "Internet Archive",
+    "description": "Addon made to scrape movies from Internet Archive",
     "types": ["movie", "series"],
     "resources": ["stream"],
     "idPrefixes": ["tt"]
 }
 
-# --- LANDING PAGE AND MANIFEST ENDPOINT ---
+# Landing page, manifest endpoint
 @app.route('/')
 def landing_page():
     host_name = request.host
-    return f"""<html><head><title>Internet Archive Addon</title></head><body><h1>Internet Archive Addon (Final)</h1><p>To install, use this link: <a href="stremio://{host_name}/manifest.json">Install Addon</a></p></body></html>"""
+    return f"""<html><head><title>Internet Archive Addon</title></head><body><h1>Internet Archive Addon</h1><p>To install, use this link: <a href="stremio://{host_name}/manifest.json">Install Addon</a></p></body></html>"""
 
 @app.route('/manifest.json')
 def get_manifest():
     return jsonify(MANIFEST)
 
-# --- FINAL, FORKED STREAMING LOGIC ---
+# Streaming Logic
 @app.route('/stream/<type>/<id>.json')
 def stream(type, id):
     print(f"--- LOG: Received request for {type} with id {id} ---")
@@ -60,23 +60,23 @@ def stream(type, id):
 
     found_identifiers = set()
 
-    # --- THIS IS THE FORKED LOGIC YOU REQUESTED ---
+    # Forked Logic 2
     if type == 'movie':
-        # For movies, use the proven Title+Year and IMDb ID search
+        # For movies, use Title+Year and IMDb ID search
         print("--- INFO (Movie): Using dual search logic... ---")
         if title and year:
             query = f'({title}) AND year:({year})'
             results = search_archive(query)
             for result in results: found_identifiers.add(result.get('identifier'))
     else: # type == 'series'
-        # For series, use the more flexible Title-Only and IMDb ID search
+        # For series, use Title-Only and IMDb ID search
         print("--- INFO (Series): Using flexible search logic... ---")
         if title:
             query = f'({title})' # Search by name only, ignore year
             results = search_archive(query)
             for result in results: found_identifiers.add(result.get('identifier'))
 
-    # The IMDb ID search runs for BOTH types as a powerful backup
+    # The IMDb ID search
     print(f"--- INFO (Backup): Performing IMDb ID Search for '{imdb_id}'... ---")
     results = search_archive(f'imdb:{imdb_id}')
     for result in results: found_identifiers.add(result.get('identifier'))
@@ -87,7 +87,7 @@ def stream(type, id):
 
     print(f"--- INFO: Found {len(found_identifiers)} unique potential item(s). Fetching files... ---")
 
-    # --- The rest of the code is the same, as it works correctly ---
+    # Code
     valid_streams = []
     VIDEO_FILE_REGEX = re.compile(r'.*\.(mkv|mp4|avi|mov)$', re.IGNORECASE)
     
