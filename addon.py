@@ -11,15 +11,12 @@ CORS(app)
 TMDB_API_KEY = os.environ.get('TMDB_API_KEY')
 TMDB_API_URL = "https://api.themoviedb.org/3"
 
-# Relevancy Filters
 NEGATIVE_KEYWORDS = ['trailer', 'teaser', 'preview', 'sample', 'featurette', 'screener']
-# Size limits are disabled by being set to 0.
-MIN_SIZE_MB = 0
 
 # --- ADDON MANIFEST ---
 MANIFEST = {
     "id": "org.yourname.internet-archive-streams",
-    "version": "2.3.0", # Corrected Search
+    "version": "2.4.0", # Corrected Series Logic
     "name": "Internet Archive Streams",
     "description": "A smart scraper for finding relevant movie and series streams on The Internet Archive.",
     "types": ["movie", "series"],
@@ -30,11 +27,9 @@ MANIFEST = {
 # --- REGEX & HELPERS ---
 VIDEO_FILE_REGEX = re.compile(r'.*\.(mkv|mp4|avi|mov)$', re.IGNORECASE)
 
-# --- CORRECTED HELPER FUNCTIONS ---
-# This function is now back to the simple, working version. It only executes the query.
 def search_archive(query):
     search_url = "https://archive.org/advancedsearch.php"
-    params = {'q': query, 'fl[]': 'identifier', 'rows': '5', 'output': 'json'}
+    params = {'q': query, 'fl[]': 'identifier', 'rows': '10', 'output': 'json'} # Increased rows for better chance
     print(f"INFO: Searching Archive.org with query: [{query}]")
     try:
         response = requests.get(search_url, params=params, timeout=10)
@@ -84,37 +79,37 @@ def stream(type, id):
         print(f"ERROR: Could not get info from TMDB: {e}")
         return jsonify({"streams": []})
 
-    # --- REVERTED TO THE WORKING SEARCH LOGIC ---
-    # The query is now built here, with different logic for movies and series.
+    search_results = []
     if type == 'movie':
         search_query = f'({title}) AND year:({year}) AND mediatype:(movies)'
+        search_results = search_archive(search_query)
     else: # type == 'series'
-        search_query = f'({title}) AND year:({year})' # Broader search for series
-
-    search_results = search_archive(search_query)
+        season_num, episode_num = id.split(':')[1:]
+        s_e_simple = f'S{int(season_num):02d}E{int(episode_num):02d}'
+        
+        # --- NEW TWO-STEP SEARCH LOGIC ---
+        # 1. Attempt a highly specific search first
+        print(f"--- INFO: Attempting specific series search... ---")
+        specific_query = f'("{title} {s_e_simple}")'
+        search_results = search_archive(specific_query)
+        
+        # 2. If the specific search fails, fall back to a broad search
+        if not search_results:
+            print(f"--- INFO: Specific search failed, trying broad search... ---")
+            broad_query = f'({title}) AND year:({year})'
+            search_results = search_archive(broad_query)
 
     valid_streams = []
-    # Loop through all found archive items to find the best files
     for result in search_results:
         identifier = result.get('identifier')
         if not identifier: continue
 
         files = get_archive_files(identifier)
-
         for f in files:
             filename = f.get('name')
             if not filename or not VIDEO_FILE_REGEX.match(filename):
                 continue
-
-            # --- Apply Filters ---
             if any(keyword in filename.lower() for keyword in NEGATIVE_KEYWORDS):
-                continue
-            
-            try: # Disable size filter by checking against 0
-                file_size_mb = int(f.get('size', 0)) / (1024*1024)
-                if file_size_mb < MIN_SIZE_MB:
-                    continue
-            except (ValueError, TypeError):
                 continue
             
             if type == 'series':
@@ -130,7 +125,6 @@ def stream(type, id):
                 "_size": int(f.get('size', 0))
             })
     
-    # Sort by size (largest file first) and send to Stremio
     sorted_streams = sorted(valid_streams, key=lambda k: k['_size'], reverse=True)
     for s in sorted_streams: del s['_size']
 
