@@ -16,12 +16,28 @@ NEGATIVE_KEYWORDS = ['trailer', 'teaser', 'preview', 'sample', 'featurette', 'sc
 # --- ADDON MANIFEST ---
 MANIFEST = {
     "id": "org.yourname.internet-archive-streams",
-    "version": "2.4.0", # Corrected Series Logic
+    "version": "2.5.0", # Final Manifest Fix
     "name": "Internet Archive Streams",
     "description": "A smart scraper for finding relevant movie and series streams on The Internet Archive.",
     "types": ["movie", "series"],
-    "resources": ["stream"],
-    "idPrefixes": ["tt"]
+    
+    # --- THIS IS THE CRUCIAL FIX ---
+    # Instead of a generic "resources": ["stream"], we now explicitly
+    # declare that the stream resource is available for both types.
+    # This tells Stremio to send requests for both movies AND series.
+    "resources": [
+        {
+            "name": "stream",
+            "types": ["movie"],
+            "idPrefixes": ["tt"]
+        },
+        {
+            "name": "stream",
+            "types": ["series"],
+            "idPrefixes": ["tt"]
+        }
+    ],
+    # The "idPrefixes" at the top level is no longer needed as it's in the resources.
 }
 
 # --- REGEX & HELPERS ---
@@ -29,7 +45,7 @@ VIDEO_FILE_REGEX = re.compile(r'.*\.(mkv|mp4|avi|mov)$', re.IGNORECASE)
 
 def search_archive(query):
     search_url = "https://archive.org/advancedsearch.php"
-    params = {'q': query, 'fl[]': 'identifier', 'rows': '10', 'output': 'json'} # Increased rows for better chance
+    params = {'q': query, 'fl[]': 'identifier', 'rows': '10', 'output': 'json'}
     print(f"INFO: Searching Archive.org with query: [{query}]")
     try:
         response = requests.get(search_url, params=params, timeout=10)
@@ -87,13 +103,10 @@ def stream(type, id):
         season_num, episode_num = id.split(':')[1:]
         s_e_simple = f'S{int(season_num):02d}E{int(episode_num):02d}'
         
-        # --- NEW TWO-STEP SEARCH LOGIC ---
-        # 1. Attempt a highly specific search first
         print(f"--- INFO: Attempting specific series search... ---")
         specific_query = f'("{title} {s_e_simple}")'
         search_results = search_archive(specific_query)
         
-        # 2. If the specific search fails, fall back to a broad search
         if not search_results:
             print(f"--- INFO: Specific search failed, trying broad search... ---")
             broad_query = f'({title}) AND year:({year})'
