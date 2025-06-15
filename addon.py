@@ -14,7 +14,7 @@ TMDB_API_URL = "https://api.themoviedb.org/3"
 # --- THE SINGLE, UNIFIED MANIFEST ---
 MANIFEST = {
     "id": "org.yourname.internet-archive.final",
-    "version": "9.0.4", # Typo Fix
+    "version": "9.0.5", # Relaxed Series Matching
     "name": "Internet Archive (Final)",
     "description": "A resilient addon for finding movies and series on The Internet Archive.",
     "types": ["movie", "series"],
@@ -71,11 +71,14 @@ def stream(type, id):
         for result in results: found_identifiers.add(result.get('identifier'))
 
     else: # type == 'series'
-        print("--- INFO (Series): Using NAME-ONLY search logic... ---")
+        print("--- INFO (Series): Using flexible search logic... ---")
         if title:
             query = f'({title})'
             results = search_archive(query)
             for result in results: found_identifiers.add(result.get('identifier'))
+        print(f"--- INFO (Series Backup): Performing IMDb ID Search for '{imdb_id}'... ---")
+        results = search_archive(f'imdb:{imdb_id}')
+        for result in results: found_identifiers.add(result.get('identifier'))
     
     if not found_identifiers:
         print("--- FAIL: No items found on Archive.org from any search. ---")
@@ -92,21 +95,12 @@ def stream(type, id):
         for f in files:
             filename = f.get('name')
             if filename and VIDEO_FILE_REGEX.match(filename):
-                if type == 'series':
-                    season_num, episode_num = int(id.split(':')[1]), int(id.split(':')[2])
-                    patterns = [
-                        re.compile(f'[Ss]{season_num:02d}[._- ]?[EeXx]{episode_num:02d}'),
-                        re.compile(f'{season_num:d}[xX]{episode_num:02d}'),
-                        re.compile(f'[Ss]eason[._- ]{season_num}[._- ]?[Ee]pisode[._- ]{episode_num}', re.I)
-                    ]
-                    if not any(p.search(filename) for p in patterns):
-                        continue
-                
+                # --- THIS IS THE CHANGE ---
+                # The series-specific filename check has been removed.
+                # Any video file found will now be added to the list.
                 valid_streams.append({ "name": "Internet Archive", "title": filename, "url": f"https://archive.org/download/{identifier}/{filename.replace(' ', '%20')}" })
     
     print(f"--- SUCCESS: Found {len(valid_streams)} valid stream(s). Returning to Stremio. ---")
-    # --- THIS IS THE FIX ---
-    # The typo '_valid_streams' has been corrected to 'valid_streams'.
     return jsonify({"streams": sorted(valid_streams, key=lambda k: k['title'])})
 
 def search_archive(query):
