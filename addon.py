@@ -12,8 +12,6 @@ TMDB_API_KEY = os.environ.get('TMDB_API_KEY')
 TMDB_API_URL = "https://api.themoviedb.org/3"
 
 # --- THE SINGLE, UNIFIED MANIFEST ---
-# This is the simplest possible manifest that declares support for both types.
-# This is the industry standard.
 MANIFEST = {
     "id": "org.yourname.internet-archive-unified",
     "version": "6.0.0",
@@ -27,19 +25,17 @@ MANIFEST = {
 # --- LANDING PAGE AND MANIFEST ENDPOINT ---
 @app.route('/')
 def landing_page():
-    # Simple message to avoid confusion
-    return "<h1>Internet Archive Unified Addon</h1><p>To install, use the manifest.json link.</p>"
+    return "<h1>Internet Archive Unified Addon</h1><p>To install, add /manifest.json to this URL.</p>"
 
 @app.route('/manifest.json')
 def get_manifest():
-    # Serves the single, unified manifest.
     return jsonify(MANIFEST)
 
 
 # --- DUAL SEARCH STREAMING LOGIC ---
 @app.route('/stream/<type>/<id>.json')
 def stream(type, id):
-    print(f"--- LOG: Received request for {type} with id {id} ---")
+    print(f"--- LOG: Received correct request for {type} with id {id} ---")
     imdb_id = id.split(':')[0]
     
     title, year = None, None
@@ -102,9 +98,8 @@ def stream(type, id):
                 valid_streams.append({ "name": "Internet Archive", "title": filename, "url": f"https://archive.org/download/{identifier}/{filename.replace(' ', '%20')}" })
     
     print(f"--- SUCCESS: Found {len(valid_streams)} valid stream(s). Returning to Stremio. ---")
-    return jsonify({"streams": sorted(valid_streams, key=lambda k: k['title'])}) # Sort alphabetically for consistency
+    return jsonify({"streams": sorted(valid_streams, key=lambda k: k['title'])})
 
-# --- Helper functions ---
 def search_archive(query):
     search_url = "https://archive.org/advancedsearch.php"
     params = {'q': query, 'fl[]': 'identifier', 'rows': '10', 'output': 'json'}
