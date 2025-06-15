@@ -14,7 +14,7 @@ TMDB_API_URL = "https://api.themoviedb.org/3"
 # --- THE SINGLE, UNIFIED MANIFEST ---
 MANIFEST = {
     "id": "org.yourname.internet-archive.final",
-    "version": "9.0.5", # Relaxed Series Matching
+    "version": "9.1.0", # Mirrored Search Logic
     "name": "Internet Archive (Final)",
     "description": "A resilient addon for finding movies and series on The Internet Archive.",
     "types": ["movie", "series"],
@@ -32,7 +32,7 @@ def landing_page():
 def get_manifest():
     return jsonify(MANIFEST)
 
-# --- FINAL, FORKED STREAMING LOGIC ---
+# --- FINAL, UNIFIED STREAMING LOGIC ---
 @app.route('/stream/<type>/<id>.json')
 def stream(type, id):
     print(f"--- LOG: Received request for {type} with id {id} ---")
@@ -60,25 +60,18 @@ def stream(type, id):
 
     found_identifiers = set()
 
-    if type == 'movie':
-        print("--- INFO (Movie): Using dual search logic... ---")
-        if title and year:
-            query = f'({title}) AND year:({year})'
-            results = search_archive(query)
-            for result in results: found_identifiers.add(result.get('identifier'))
-        print(f"--- INFO (Movie Backup): Performing IMDb ID Search for '{imdb_id}'... ---")
-        results = search_archive(f'imdb:{imdb_id}')
+    # --- THIS IS THE NEW LOGIC ---
+    # Both movies and series now use the same, proven Title+Year search logic.
+    if title and year:
+        print(f"--- INFO ({type.capitalize()}): Performing Title+Year Search... ---")
+        query = f'({title}) AND year:({year})'
+        results = search_archive(query)
         for result in results: found_identifiers.add(result.get('identifier'))
 
-    else: # type == 'series'
-        print("--- INFO (Series): Using flexible search logic... ---")
-        if title:
-            query = f'({title})'
-            results = search_archive(query)
-            for result in results: found_identifiers.add(result.get('identifier'))
-        print(f"--- INFO (Series Backup): Performing IMDb ID Search for '{imdb_id}'... ---")
-        results = search_archive(f'imdb:{imdb_id}')
-        for result in results: found_identifiers.add(result.get('identifier'))
+    # The IMDb ID search ALWAYS runs for both as the most reliable backup.
+    print(f"--- INFO (Backup): Performing IMDb ID Search for '{imdb_id}'... ---")
+    results = search_archive(f'imdb:{imdb_id}')
+    for result in results: found_identifiers.add(result.get('identifier'))
     
     if not found_identifiers:
         print("--- FAIL: No items found on Archive.org from any search. ---")
@@ -95,9 +88,16 @@ def stream(type, id):
         for f in files:
             filename = f.get('name')
             if filename and VIDEO_FILE_REGEX.match(filename):
-                # --- THIS IS THE CHANGE ---
-                # The series-specific filename check has been removed.
-                # Any video file found will now be added to the list.
+                if type == 'series':
+                    season_num, episode_num = int(id.split(':')[1]), int(id.split(':')[2])
+                    patterns = [
+                        re.compile(f'[Ss]{season_num:02d}[._- ]?[EeXx]{episode_num:02d}'),
+                        re.compile(f'{season_num:d}[xX]{episode_num:02d}'),
+                        re.compile(f'[Ss]eason[._- ]{season_num}[._- ]?[Ee]pisode[._- ]{episode_num}', re.I)
+                    ]
+                    if not any(p.search(filename) for p in patterns):
+                        continue
+                
                 valid_streams.append({ "name": "Internet Archive", "title": filename, "url": f"https://archive.org/download/{identifier}/{filename.replace(' ', '%20')}" })
     
     print(f"--- SUCCESS: Found {len(valid_streams)} valid stream(s). Returning to Stremio. ---")
