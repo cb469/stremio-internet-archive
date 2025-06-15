@@ -10,12 +10,11 @@ CORS(app)
 # --- CONFIGURATION ---
 TMDB_API_KEY = os.environ.get('TMDB_API_KEY')
 TMDB_API_URL = "https://api.themoviedb.org/3"
-NEGATIVE_KEYWORDS = ['trailer', 'teaser', 'preview', 'sample', 'featurette', 'screener']
 
 # --- MOVIE ADDON MANIFEST ---
 MOVIE_MANIFEST = {
     "id": "org.yourname.internet-archive-movies",
-    "version": "4.0.2",
+    "version": "4.1.0",
     "name": "Internet Archive (Movies)",
     "description": "Provides movie streams from The Internet Archive.",
     "types": ["movie"],
@@ -26,7 +25,7 @@ MOVIE_MANIFEST = {
 # --- SERIES ADDON MANIFEST ---
 SERIES_MANIFEST = {
     "id": "org.yourname.internet-archive-series",
-    "version": "4.0.2",
+    "version": "4.1.0",
     "name": "Internet Archive (Series)",
     "description": "Provides series streams from The Internet Archive.",
     "types": ["series"],
@@ -60,11 +59,11 @@ def series_manifest():
 
 
 # --- UNIFIED STREAMING LOGIC ---
-# --- THIS IS THE FIX ---
-# The route now includes the <base> variable to match Stremio's requests.
+# This version uses the simpler, more reliable scraping logic from the last working version.
 @app.route('/<base>/stream/<type>/<id>.json')
-def stream(base, type, id): # The function now accepts 'base', but doesn't need to use it.
+def stream(base, type, id):
     if not TMDB_API_KEY:
+        print("FATAL: TMDB_API_KEY environment variable is not set.")
         return jsonify({"streams": []})
 
     imdb_id = id.split(':')[0]
@@ -76,74 +75,76 @@ def stream(base, type, id): # The function now accepts 'base', but doesn't need 
         data = response.json()
         
         results = data.get('movie_results' if type == 'movie' else 'tv_results', [])
-        if not results: return jsonify({"streams": []})
+        if not results:
+            return jsonify({"streams": []})
 
         item = results[0]
         title = item.get('title' if type == 'movie' else 'name')
         year = (item.get('release_date') or item.get('first_air_date', ''))[:4]
         
-        if not title or not year: return jsonify({"streams": []})
+        if not title or not year:
+            return jsonify({"streams": []})
     except Exception as e:
         print(f"ERROR: Could not get info from TMDB: {e}")
         return jsonify({"streams": []})
 
-    search_results = []
+    # --- USING THE SIMPLE AND RELIABLE SEARCH LOGIC ---
     if type == 'movie':
         search_query = f'({title}) AND year:({year}) AND mediatype:(movies)'
-        search_results = search_archive(search_query)
     else: # type == 'series'
-        season_num, episode_num = id.split(':')[1:]
-        s_e_simple = f'S{int(season_num):02d}E{int(episode_num):02d}'
-        specific_query = f'("{title} {s_e_simple}")'
-        search_results = search_archive(specific_query)
-        if not search_results:
-            broad_query = f'({title}) AND year:({year})'
-            search_results = search_archive(broad_query)
+        search_query = f'({title}) AND year:({year})' # More flexible query for TV
 
-    valid_streams = []
-    for result in search_results:
-        identifier = result.get('identifier')
-        if not identifier: continue
+    archive_results = search_archive(search_query)
 
-        files = get_archive_files(identifier)
-        for f in files:
-            filename = f.get('name')
-            if not filename or not VIDEO_FILE_REGEX.match(filename):
-                continue
-            if any(keyword in filename.lower() for keyword in NEGATIVE_KEYWORDS):
-                continue
-            
+    if not archive_results:
+        return jsonify({"streams": []})
+
+    # We only check the first result for simplicity and relevance.
+    best_result_id = archive_results[0].get('identifier')
+    if not best_result_id:
+        return jsonify({"streams": []})
+
+    files = get_archive_files(best_result_id)
+    streams = []
+    VIDEO_FILE_REGEX = re.compile(r'.*\.(mkv|mp4|avi|mov)$', re.IGNORECASE)
+
+    for f in files:
+        filename = f.get('name')
+        if filename and VIDEO_FILE_REGEX.match(filename):
             if type == 'series':
                 season_num, episode_num = id.split(':')[1:]
+                # Simple and effective S/E pattern matching
                 s_e_pattern = f'[Ss]{int(season_num):02d}[._- ]?[EeXx]{int(episode_num):02d}|{int(season_num):d}[._- ]?[EeXx]{int(episode_num):02d}'
                 if not re.search(s_e_pattern, filename):
                     continue
-
-            valid_streams.append({
+            
+            streams.append({
                 "name": "Internet Archive",
                 "title": filename,
-                "url": f"https://archive.org/download/{identifier}/{filename.replace(' ', '%20')}",
-                "_size": int(f.get('size', 0))
+                "url": f"https://archive.org/download/{best_result_id}/{filename.replace(' ', '%20')}"
             })
-    
-    sorted_streams = sorted(valid_streams, key=lambda k: k['_size'], reverse=True)
-    for s in sorted_streams: del s['_size']
-    return jsonify({"streams": sorted_streams})
+
+    print(f"INFO: Returning {len(streams)} streams for {title} ({year})")
+    return jsonify({"streams": streams})
 
 def search_archive(query):
     search_url = "https://archive.org/advancedsearch.php"
-    params = {'q': query, 'fl[]': 'identifier', 'rows': '10', 'output': 'json'}
+    params = {'q': query, 'fl[]': 'identifier', 'rows': '5', 'output': 'json'}
     print(f"INFO: Searching Archive.org with query: [{query}]")
     try:
         response = requests.get(search_url, params=params, timeout=10)
         response.raise_for_status()
-        return response.json().get('response', {}).get('docs', [])
+        data = response.json()
+        docs = data.get('response', {}).get('docs', [])
+        print(f"INFO: Archive.org found {len(docs)} documents.")
+        return docs
     except requests.exceptions.RequestException as e:
         print(f"ERROR: Could not connect to Archive.org: {e}")
         return []
 
 def get_archive_files(identifier):
     metadata_url = f"https://archive.org/metadata/{identifier}"
+    print(f"INFO: Getting file list for identifier: {identifier}")
     try:
         response = requests.get(metadata_url, timeout=10)
         response.raise_for_status()
