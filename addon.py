@@ -11,28 +11,37 @@ CORS(app)
 TMDB_API_KEY = os.environ.get('TMDB_API_KEY')
 TMDB_API_URL = "https://api.themoviedb.org/3"
 
-# --- MANIFESTS ---
-MOVIE_MANIFEST = { "id": "org.yourname.internet-archive-movies", "version": "5.0.0", "name": "Internet Archive (Movies)", "description": "Finds movies using a resilient dual search (Title and IMDb ID).", "types": ["movie"], "resources": ["stream"], "idPrefixes": ["tt"] }
-SERIES_MANIFEST = { "id": "org.yourname.internet-archive-series", "version": "5.0.0", "name": "Internet Archive (Series)", "description": "Finds series using a resilient dual search (Title and IMDb ID).", "types": ["series"], "resources": ["stream"], "idPrefixes": ["tt"] }
+# --- THE SINGLE, UNIFIED MANIFEST ---
+# This is the simplest possible manifest that declares support for both types.
+# This is the industry standard.
+MANIFEST = {
+    "id": "org.yourname.internet-archive-unified",
+    "version": "6.0.0",
+    "name": "Internet Archive (Unified)",
+    "description": "A resilient addon for finding movies and series on The Internet Archive.",
+    "types": ["movie", "series"],
+    "resources": ["stream"],
+    "idPrefixes": ["tt"]
+}
 
-# --- LANDING PAGE AND MANIFEST ENDPOINTS (Unchanged) ---
+# --- LANDING PAGE AND MANIFEST ENDPOINT ---
 @app.route('/')
 def landing_page():
-    host_name = request.host
-    return f"""<html><head><title>Internet Archive Addons</title></head><body><h1>Install Your Internet Archive Stremio Addons</h1><p><a href="stremio://{host_name}/movie/manifest.json">Click to Install Movie Addon</a></p><p><a href="stremio://{host_name}/series/manifest.json">Click to Install Series Addon</a></p></body></html>"""
-@app.route('/movie/manifest.json')
-def movie_manifest(): return jsonify(MOVIE_MANIFEST)
-@app.route('/series/manifest.json')
-def series_manifest(): return jsonify(SERIES_MANIFEST)
+    # Simple message to avoid confusion
+    return "<h1>Internet Archive Unified Addon</h1><p>To install, use the manifest.json link.</p>"
+
+@app.route('/manifest.json')
+def get_manifest():
+    # Serves the single, unified manifest.
+    return jsonify(MANIFEST)
 
 
 # --- DUAL SEARCH STREAMING LOGIC ---
-@app.route('/<base>/stream/<type>/<id>.json')
-def stream(base, type, id):
+@app.route('/stream/<type>/<id>.json')
+def stream(type, id):
     print(f"--- LOG: Received request for {type} with id {id} ---")
     imdb_id = id.split(':')[0]
     
-    # --- STEP 1: ATTEMPT to get Title and Year from TMDB ---
     title, year = None, None
     if TMDB_API_KEY:
         try:
@@ -49,26 +58,21 @@ def stream(base, type, id):
             else:
                  print(f"--- WARNING: TMDB API returned status {response.status_code}. ---")
         except Exception as e:
-            print(f"--- WARNING: TMDB lookup failed: {e}. Proceeding with IMDb ID search. ---")
+            print(f"--- WARNING: TMDB lookup failed: {e}. ---")
     else:
-        print("--- WARNING: TMDB_API_KEY not set. Proceeding with IMDb ID search only. ---")
+        print("--- WARNING: TMDB_API_KEY not set. ---")
 
-    # --- STEP 2: PERFORM DUAL SEARCH ---
-    found_identifiers = set() # Using a set to auto-handle duplicates
+    found_identifiers = set()
 
-    # Search 1: Title Search (if title was found)
     if title:
         print(f"--- INFO: Performing Title Search for '{title}'... ---")
         query = f'({title}) AND year:({year})' if year else f'({title})'
         results = search_archive(query)
-        for result in results:
-            found_identifiers.add(result.get('identifier'))
+        for result in results: found_identifiers.add(result.get('identifier'))
 
-    # Search 2: IMDb ID Search (always runs as a backup)
     print(f"--- INFO: Performing IMDb ID Search for '{imdb_id}'... ---")
     results = search_archive(f'imdb:{imdb_id}')
-    for result in results:
-        found_identifiers.add(result.get('identifier'))
+    for result in results: found_identifiers.add(result.get('identifier'))
     
     if not found_identifiers:
         print("--- FAIL: No items found on Archive.org from either search. ---")
@@ -76,7 +80,6 @@ def stream(base, type, id):
 
     print(f"--- INFO: Found {len(found_identifiers)} unique potential item(s). Fetching files... ---")
 
-    # --- STEP 3: PROCESS all found items and filter for the correct file ---
     valid_streams = []
     VIDEO_FILE_REGEX = re.compile(r'.*\.(mkv|mp4|avi|mov)$', re.IGNORECASE)
     
@@ -99,8 +102,9 @@ def stream(base, type, id):
                 valid_streams.append({ "name": "Internet Archive", "title": filename, "url": f"https://archive.org/download/{identifier}/{filename.replace(' ', '%20')}" })
     
     print(f"--- SUCCESS: Found {len(valid_streams)} valid stream(s). Returning to Stremio. ---")
-    return jsonify({"streams": valid_streams})
+    return jsonify({"streams": sorted(valid_streams, key=lambda k: k['title'])}) # Sort alphabetically for consistency
 
+# --- Helper functions ---
 def search_archive(query):
     search_url = "https://archive.org/advancedsearch.php"
     params = {'q': query, 'fl[]': 'identifier', 'rows': '10', 'output': 'json'}
@@ -109,8 +113,7 @@ def search_archive(query):
         response = requests.get(search_url, params=params, timeout=10)
         response.raise_for_status()
         return response.json().get('response', {}).get('docs', [])
-    except requests.exceptions.RequestException as e:
-        print(f"--- FATAL (Search): {e} ---")
+    except Exception as e:
         return []
 
 def get_archive_files(identifier):
@@ -119,8 +122,7 @@ def get_archive_files(identifier):
         response = requests.get(metadata_url, timeout=10)
         response.raise_for_status()
         return response.json().get('files', [])
-    except requests.exceptions.RequestException as e:
-        print(f"--- FATAL (Files): {e} ---")
+    except Exception as e:
         return []
 
 if __name__ == "__main__":
