@@ -16,28 +16,20 @@ NEGATIVE_KEYWORDS = ['trailer', 'teaser', 'preview', 'sample', 'featurette', 'sc
 # --- ADDON MANIFEST ---
 MANIFEST = {
     "id": "org.yourname.internet-archive-streams",
-    "version": "2.5.0", # Final Manifest Fix
+    "version": "2.6.0", # Final Manifest Fix
     "name": "Internet Archive Streams",
     "description": "A smart scraper for finding relevant movie and series streams on The Internet Archive.",
     "types": ["movie", "series"],
     
-    # --- THIS IS THE CRUCIAL FIX ---
-    # Instead of a generic "resources": ["stream"], we now explicitly
-    # declare that the stream resource is available for both types.
-    # This tells Stremio to send requests for both movies AND series.
+    # This is the critical line that was missing. It tells Stremio that this
+    # addon understands IMDb IDs for ALL of its supported types.
+    "idPrefixes": ["tt"],
+    
+    # This explicitly lists what the addon provides.
     "resources": [
-        {
-            "name": "stream",
-            "types": ["movie"],
-            "idPrefixes": ["tt"]
-        },
-        {
-            "name": "stream",
-            "types": ["series"],
-            "idPrefixes": ["tt"]
-        }
-    ],
-    # The "idPrefixes" at the top level is no longer needed as it's in the resources.
+        { "name": "stream", "types": ["movie"] },
+        { "name": "stream", "types": ["series"] }
+    ]
 }
 
 # --- REGEX & HELPERS ---
