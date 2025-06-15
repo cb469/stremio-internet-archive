@@ -14,7 +14,7 @@ TMDB_API_URL = "https://api.themoviedb.org/3"
 # --- THE SINGLE, UNIFIED MANIFEST ---
 MANIFEST = {
     "id": "org.yourname.internet-archive.final",
-    "version": "9.0.3", # Name-Only Search for Series
+    "version": "9.0.4", # Typo Fix
     "name": "Internet Archive (Final)",
     "description": "A resilient addon for finding movies and series on The Internet Archive.",
     "types": ["movie", "series"],
@@ -61,20 +61,16 @@ def stream(type, id):
     found_identifiers = set()
 
     if type == 'movie':
-        # For movies, use the proven Title+Year and IMDb ID search
         print("--- INFO (Movie): Using dual search logic... ---")
         if title and year:
             query = f'({title}) AND year:({year})'
             results = search_archive(query)
             for result in results: found_identifiers.add(result.get('identifier'))
-        # The IMDb ID search runs as a backup for movies
         print(f"--- INFO (Movie Backup): Performing IMDb ID Search for '{imdb_id}'... ---")
         results = search_archive(f'imdb:{imdb_id}')
         for result in results: found_identifiers.add(result.get('identifier'))
 
     else: # type == 'series'
-        # --- THIS IS YOUR REQUESTED LOGIC ---
-        # For series, we now ONLY search by title.
         print("--- INFO (Series): Using NAME-ONLY search logic... ---")
         if title:
             query = f'({title})'
@@ -109,7 +105,9 @@ def stream(type, id):
                 valid_streams.append({ "name": "Internet Archive", "title": filename, "url": f"https://archive.org/download/{identifier}/{filename.replace(' ', '%20')}" })
     
     print(f"--- SUCCESS: Found {len(valid_streams)} valid stream(s). Returning to Stremio. ---")
-    return jsonify({"streams": sorted(_valid_streams, key=lambda k: k['title'])})
+    # --- THIS IS THE FIX ---
+    # The typo '_valid_streams' has been corrected to 'valid_streams'.
+    return jsonify({"streams": sorted(valid_streams, key=lambda k: k['title'])})
 
 def search_archive(query):
     search_url = "https://archive.org/advancedsearch.php"
