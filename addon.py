@@ -28,7 +28,7 @@ MANIFEST = {
 @app.route('/')
 def landing_page():
     host_name = request.host
-    return f"""<html><head><title>Internet Archive Addon</title></head><body><h1>Internet Archive Stream Provider</h1><p>This addon attaches to Stremio's existing movie and series pages.</p><p><a href="stremio://{host_name}/manifest.json">Click here to install the addon</a></p></body></html>"""
+    return f"""<html><head><title>Internet Archive Addon</title></head><body><h1>Internet Archive Addon</h1><p>To install</p><p><a href="stremio://{host_name}/manifest.json">Click here to install the addon</a></p></body></html>"""
 
 @app.route('/manifest.json')
 def get_manifest():
