@@ -7,16 +7,16 @@ import re
 app = Flask(__name__)
 CORS(app)
 
-# --- CONFIGURATION ---
+# Configuration
 TMDB_API_KEY = os.environ.get('TMDB_API_KEY')
 TMDB_API_URL = "https://api.themoviedb.org/3"
 REQUEST_TIMEOUT = 5 # Lower timeout for individual requests
 MAX_RESULTS_TO_PROCESS = 3 # Process only the top 3 results to avoid timeouts
 
-# --- THE FINAL, CORRECT STREAM PROVIDER MANIFEST ---
+# manifest
 MANIFEST = {
-    "id": "org.yourname.internet-archive.stream-provider",
-    "version": "13.0.1", # Optimized Version
+    "id": "org.internet-archive.stream-provider",
+    "version": "13.0.1",
     "name": "Internet Archive",
     "description": "Finds streams from The Internet Archive for movies and series.",
     "types": ["movie", "series"],
@@ -24,7 +24,7 @@ MANIFEST = {
     "idPrefixes": ["tt"]
 }
 
-# --- LANDING PAGE AND MANIFEST ENDPOINT ---
+# --- Landing page, manifest endpoint ---
 @app.route('/')
 def landing_page():
     host_name = request.host
@@ -34,7 +34,7 @@ def landing_page():
 def get_manifest():
     return jsonify(MANIFEST)
 
-# --- THE FINAL, OPTIMIZED STREAMING LOGIC ---
+# --- Streaming logic ---
 @app.route('/stream/<type>/<id>.json')
 def stream(type, id):
     print(f"--- LOG: Received request for {type} with id {id} ---")
@@ -72,8 +72,7 @@ def stream(type, id):
         print("--- FAIL: No items found on Archive.org from any search. ---")
         return jsonify({"streams": []})
 
-    # --- OPTIMIZATION ---
-    # We convert the set to a list and only process the first few results.
+    # Optimization
     identifiers_to_process = list(found_identifiers)[:MAX_RESULTS_TO_PROCESS]
     print(f"--- INFO: Found {len(found_identifiers)} items. Processing top {len(identifiers_to_process)}... ---")
 
